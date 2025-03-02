@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频音频提取器</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .upload-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .extract-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #34a853;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .extract-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .preview-container {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        video, audio {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .hidden {
+            display: none;
+        }
+        .status {
+            text-align: center;
+            margin: 10px 0;
+            color: #666;
+        }
+        .download-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #fbbc05;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            text-align: center;
+            text-decoration: none;
+        }
+        .section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>视频音频提取器</h1>
+        
+        <div class="section">
+            <input type="file" id="videoInput" accept="video/*" class="hidden">
+            <button class="upload-btn" id="uploadBtn">选择视频</button>
+            <div id="videoPreviewContainer" class="preview-container hidden">
+                <video id="videoPreview" controls></video>
+                <div class="status" id="videoStatus"></div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <button class="extract-btn" id="extractBtn" disabled>提取音频</button>
+            <div id="loadingIndicator" class="loading hidden">
+                处理中，请稍候...
+                <div class="progress-container">
+                    <div class="progress-bar" id="progressBar">0%</div>
+                </div>
+                <div id="processStatus">正在读取视频...</div>
+            </div>
+        </div>
+        
+        <div class="section hidden" id="audioSection">
+            <audio id="audioPreview" controls></audio>
+            <div class="status" id="audioStatus"></div>
+            <a class="download-btn" id="downloadBtn" download="提取的音频.mp3">下载 MP3 音频</a>
+        </div>
+    </div>
+
+    <!-- 引入 lamejs MP3 编码库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+    <script>
+        // 获取DOM元素
+        const videoInput = document.getElementById('videoInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const videoPreview = document.getElementById('videoPreview');
+        const videoPreviewContainer = document.getElementById('videoPreviewContainer');
+        const videoStatus = document.getElementById('videoStatus');
+        const extractBtn = document.getElementById('extractBtn');
+        const audioPreview = document.getElementById('audioPreview');
+        const audioStatus = document.getElementById('audioStatus');
+        const audioSection = document.getElementById('audioSection');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const progressBar = document.getElementById('progressBar');
+        const processStatus = document.getElementById('processStatus');
+        
+        let selectedFileName = '';
+        
+        // 添加事件监听器
+        uploadBtn.addEventListener('click', () => {
+            videoInput.click();
+        });
+        
+        videoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // 保存文件名
+            selectedFileName = file.name;
+            
+            // 显示视频预览
+            const videoURL = URL.createObjectURL(file);
+            videoPreview.src = videoURL;
+            videoPreviewContainer.classList.remove('hidden');
+            
+            // 显示视频信息
+            videoStatus.textContent = `已选择: ${file.name} (${formatFileSize(file.size)})`;
+            
+            // 启用提取按钮
+            extractBtn.disabled = false;
+            
+            // 隐藏音频部分（如果之前显示过）
+            audioSection.classList.add('hidden');
+        });
+        
+        extractBtn.addEventListener('click', () => {
+            const file = videoInput.files[0];
+            if (!file) return;
+            
+            // 显示加载指示器
+            loadingIndicator.classList.remove('hidden');
+            extractBtn.disabled = true;
+            
+            // 使用Web Audio API提取音频
+            extractAudioWithWebAudio(file);
+        });
+        
+        // 使用Web Audio API提取音频
+        function extractAudioWithWebAudio(videoFile) {
+            // 重置进度条
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            processStatus.textContent = '正在读取视频...';
+            
+            // 创建AudioContext
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 创建音频源
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // 更新进度条
+                updateProgress(25);
+                processStatus.textContent = '正在解码音频...';
+                
+                // 解码音频数据
+                audioContext.decodeAudioData(e.target.result)
+                    .then(function(buffer) {
+                        // 更新进度条
+                        updateProgress(50);
+                        processStatus.textContent = '正在处理音频...';
+                        
+                        // 获取PCM数据
+                        const channelData = [];
+                        for (let i = 0; i < buffer.numberOfChannels; i++) {
+                            channelData.push(buffer.getChannelData(i));
+                        }
+                        
+                        // 更新进度条
+                        updateProgress(60);
+                        processStatus.textContent = '正在转换为MP3...';
+                        
+                        // 转换为MP3
+                        convertToMP3(buffer, channelData).then(mp3Blob => {
+                            // 更新进度条
+                            updateProgress(95);
+                            processStatus.textContent = '完成！';
+                            
+                            // 创建音频URL
+                            const audioURL = URL.createObjectURL(mp3Blob);
+                            
+                            // 显示音频
+                            audioPreview.src = audioURL;
+                            audioSection.classList.remove('hidden');
+                            
+                            // 显示音频信息
+                            audioStatus.textContent = `提取成功: MP3音频 (${formatFileSize(mp3Blob.size)})`;
+                            
+                            // 设置下载链接和文件名
+                            const baseFileName = getFileNameWithoutExtension(selectedFileName);
+                            const downloadFileName = `${baseFileName}-提取.mp3`;
+                            
+                            downloadBtn.href = audioURL;
+                            downloadBtn.download = downloadFileName;
+                            downloadBtn.textContent = `下载 ${downloadFileName}`;
+                            
+                            // 隐藏加载指示器
+                            loadingIndicator.classList.add('hidden');
+                            extractBtn.disabled = false;
+                            
+                            // 完成进度条
+                            updateProgress(100);
+                        }).catch(error => {
+                            console.error('MP3转换错误:', error);
+                            alert('转换为MP3时出错，请重试');
+                            loadingIndicator.classList.add('hidden');
+                            extractBtn.disabled = false;
+                        });
+                    }).catch(function(err) {
+                        console.error('解码音频时出错:', err);
+                        alert('无法解码视频中的音频，请尝试其他视频文件');
+                        loadingIndicator.classList.add('hidden');
+                        extractBtn.disabled = false;
+                    });
+            };
+            
+            reader.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percentLoaded = Math.round((e.loaded / e.total) * 20); // 最多到20%
+                    updateProgress(percentLoaded);
+                }
+            };
+            
+            reader.readAsArrayBuffer(videoFile);
+        }
+        
+        // 转换为MP3
+        async function convertToMP3(buffer, channelData) {
+            return new Promise((resolve, reject) => {
+                try {
+                    // 检查lame库是否可用
+                    if (typeof lamejs === 'undefined') {
+                        throw new Error('缺少MP3编码库，请检查网络连接');
+                    }
+                    
+                    const sampleRate = buffer.sampleRate;
+                    const numChannels = buffer.numberOfChannels;
+                    
+                    // 创建MP3编码器
+                    const mp3encoder = new lamejs.Mp3Encoder(
+                        numChannels,     // 通道数
+                        sampleRate,      // 采样率
+                        128              // 比特率kbps
+                    );
+                    
+                    const mp3Data = [];
+                    const sampleBlockSize = 1152; // 每个MP3帧的样本数
+                    
+                    // 准备转换成Int16格式
+                    let left = null;
+                    let right = null;
+                    
+                    if (numChannels === 2) {
+                        // 立体声
+                        left = channelData[0];
+                        right = channelData[1];
+                    } else {
+                        // 单声道 (转为立体声)
+                        left = channelData[0];
+                        right = channelData[0];
+                    }
+                    
+                    // 转换成MP3
+                    const totalSamples = buffer.length;
+                    let currentSample = 0;
+                    
+                    function encodeChunk() {
+                        // 处理一个块
+                        const end = Math.min(currentSample + sampleBlockSize, totalSamples);
+                        const leftChunk = new Int16Array(end - currentSample);
+                        const rightChunk = new Int16Array(end - currentSample);
+                        
+                        // 转换浮点数到Int16
+                        for (let i = 0; i < end - currentSample; i++) {
+                            // 将-1到1的浮点数转换为-32768到32767的整数
+                            leftChunk[i] = Math.max(-32768, Math.min(32767, Math.round(left[currentSample + i] * 32767)));
+                            rightChunk[i] = Math.max(-32768, Math.min(32767, Math.round(right[currentSample + i] * 32767)));
+                        }
+                        
+                        // 编码
+                        const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+                        if (mp3buf.length > 0) {
+                            mp3Data.push(mp3buf);
+                        }
+                        
+                        // 更新进度
+                        currentSample = end;
+                        const percent = Math.min(95, 60 + Math.round((currentSample / totalSamples) * 35));
+                        updateProgress(percent);
+                        
+                        // 继续处理或完成
+                        if (currentSample < totalSamples) {
+                            setTimeout(encodeChunk, 0); // 让UI线程有机会更新
+                        } else {
+                            // 完成编码
+                            const mp3buf = mp3encoder.flush();
+                            if (mp3buf.length > 0) {
+                                mp3Data.push(mp3buf);
+                            }
+                            
+                            // 创建MP3 Blob
+                            const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
+                            resolve(mp3Blob);
+                        }
+                    }
+                    
+                    // 开始编码过程
+                    encodeChunk();
+                    
+                } catch (error) {
+                    console.error('MP3编码错误:', error);
+                    reject(error);
+                }
+            });
+        }
+        
+        // 更新进度条
+        function updateProgress(percent) {
+            progressBar.style.width = percent + '%';
+            progressBar.textContent = percent + '%';
+        }
+        
+        // 获取文件名（不含扩展名）
+        function getFileNameWithoutExtension(filename) {
+            return filename.split('.').slice(0, -1).join('.') || filename;
+        }
+        
+        // 辅助函数：格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
